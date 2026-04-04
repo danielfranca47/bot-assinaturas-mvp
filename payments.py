@@ -26,7 +26,7 @@ def create_pix_payment(
         "description": f"Acesso {plan_label} — Canal da [Nome]",
         "payment_method_id": "pix",
         "payer": {
-            "email": f"membro_{telegram_user_id}@bot.telegram",
+            "email": "autodigital157@gmail.com",
         },
         "date_of_expiration": expiration,
         "external_reference": str(telegram_user_id),
