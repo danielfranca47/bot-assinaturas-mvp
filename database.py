@@ -40,8 +40,8 @@ def update_mp_payment_id(row_id: int, mp_payment_id: str):
         )
         conn.commit()
 
-def mark_as_paid(mp_payment_id: str) -> int | None:
-    """Marca como pago e retorna o telegram_user_id."""
+def mark_as_paid(mp_payment_id: str) -> dict | None:
+    """Marca como pago e retorna dados da venda, ou None se já processado."""
     with get_conn() as conn:
         cur = conn.execute(
             "UPDATE payments SET status = 'paid', paid_at = ? WHERE mp_payment_id = ? AND status = 'pending'",
@@ -51,7 +51,14 @@ def mark_as_paid(mp_payment_id: str) -> int | None:
         if cur.rowcount == 0:
             return None
         row = conn.execute(
-            "SELECT telegram_user_id FROM payments WHERE mp_payment_id = ?",
+            "SELECT telegram_user_id, username, plan, amount_cents FROM payments WHERE mp_payment_id = ?",
             (mp_payment_id,)
         ).fetchone()
-        return row[0] if row else None
+        if not row:
+            return None
+        return {
+            "telegram_user_id": row[0],
+            "username": row[1],
+            "plan": row[2],
+            "amount_cents": row[3],
+        }

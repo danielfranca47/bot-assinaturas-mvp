@@ -1,7 +1,7 @@
 import mercadopago
 from fastapi import APIRouter, Request
 
-from config import MP_ACCESS_TOKEN, TELEGRAM_CHANNEL_LINK
+from config import MP_ACCESS_TOKEN, TELEGRAM_CHANNEL_LINK, ADMIN_TELEGRAM_ID
 from database import mark_as_paid
 from messages import MESSAGES
 
@@ -33,13 +33,27 @@ async def mercadopago_webhook(request: Request):
     if payment_info.get("status") != "approved":
         return {"status": "not_approved"}
 
-    telegram_user_id = mark_as_paid(payment_id)
-    if telegram_user_id is None:
+    sale = mark_as_paid(payment_id)
+    if sale is None:
         return {"status": "already_processed"}
 
     await _bot.send_message(
-        chat_id=telegram_user_id,
+        chat_id=sale["telegram_user_id"],
         text=MESSAGES["pagamento_confirmado"].format(link=TELEGRAM_CHANNEL_LINK),
+    )
+
+    plano_label = "Mensal" if sale["plan"] == "monthly" else "Anual"
+    valor_reais = sale["amount_cents"] / 100
+    username_display = f"@{sale['username']}" if sale["username"] else f"ID {sale['telegram_user_id']}"
+    await _bot.send_message(
+        chat_id=ADMIN_TELEGRAM_ID,
+        text=(
+            f"Nova venda realizada!\n\n"
+            f"Usuario: {username_display}\n"
+            f"Plano: {plano_label}\n"
+            f"Valor: R$ {valor_reais:.2f}\n"
+            f"ID MP: {payment_id}"
+        ),
     )
 
     return {"status": "ok"}
