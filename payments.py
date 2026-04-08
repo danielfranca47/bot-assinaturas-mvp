@@ -1,9 +1,14 @@
-import mercadopago
-from datetime import datetime, timedelta, timezone
+from efipay import EfiPay
 
-from config import MP_ACCESS_TOKEN, WEBHOOK_BASE_URL
+from config import EFI_CLIENT_ID, EFI_CLIENT_SECRET, EFI_CERT_PATH, EFI_SANDBOX, EFI_PIX_KEY
 
-sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
+_efi_options = {
+    "client_id": EFI_CLIENT_ID,
+    "client_secret": EFI_CLIENT_SECRET,
+    "sandbox": EFI_SANDBOX,
+    "certificate": EFI_CERT_PATH,
+}
+
 
 def create_pix_payment(
     telegram_user_id: int,
@@ -11,38 +16,43 @@ def create_pix_payment(
     plan: str,
 ) -> tuple[str, str]:
     """
-    Cria cobrança Pix no Mercado Pago.
-    Retorna (pix_copia_cola, mp_payment_id).
+    Cria cobrança Pix imediata no EFI Bank.
+    Retorna (pix_copia_cola, txid).
     """
-    amount = amount_cents / 100
-    expiration = (
-        datetime.now(timezone(timedelta(hours=-3))) + timedelta(minutes=30)
-    ).strftime("%Y-%m-%dT%H:%M:%S.000-03:00")
+    efi = EfiPay(_efi_options)
 
+    amount_reais = f"{amount_cents / 100:.2f}"
     plan_label = "mensal" if plan == "monthly" else "anual"
 
-    payment_data = {
-        "transaction_amount": amount,
-        "description": f"Acesso {plan_label} — Canal da [Nome]",
-        "payment_method_id": "pix",
-        "payer": {
-            "email": "autodigital157@gmail.com",
-        },
-        "date_of_expiration": expiration,
-        "external_reference": str(telegram_user_id),
+    body = {
+        "calendario": {"expiracao": 1800},
+        "valor": {"original": amount_reais},
+        "chave": EFI_PIX_KEY,
+        "solicitacaoPagador": f"Acesso {plan_label} — Canal [Nome]",
+        "infoAdicionais": [
+            {"nome": "telegram_user_id", "valor": str(telegram_user_id)}
+        ],
     }
 
-    is_public_url = WEBHOOK_BASE_URL.startswith("https://")
-    if is_public_url:
-        payment_data["notification_url"] = f"{WEBHOOK_BASE_URL}/webhook/mercadopago"
+    try:
+        charge_response = efi.pix_create_immediate_charge(body=body)
+    except Exception as e:
+        raise RuntimeError(f"Erro ao criar cobrança EFI: {e}") from e
 
-    result = sdk.payment().create(payment_data)
-    response = result["response"]
+    txid = charge_response.get("txid")
+    loc_id = charge_response.get("loc", {}).get("id")
 
-    if result["status"] not in (200, 201):
-        raise RuntimeError(f"Erro Mercado Pago: {response}")
+    if not txid or not loc_id:
+        raise RuntimeError(f"Resposta inesperada da EFI: {charge_response}")
 
-    pix_code = response["point_of_interaction"]["transaction_data"]["qr_code"]
-    mp_payment_id = str(response["id"])
+    try:
+        qrcode_response = efi.pix_generate_qrcode(params={"id": loc_id})
+    except Exception as e:
+        raise RuntimeError(f"Erro ao gerar QR Code EFI: {e}") from e
 
-    return pix_code, mp_payment_id
+    pix_copia_cola = qrcode_response.get("qrcode")
+
+    if not pix_copia_cola:
+        raise RuntimeError(f"QR Code não retornado pela EFI: {qrcode_response}")
+
+    return pix_copia_cola, txid

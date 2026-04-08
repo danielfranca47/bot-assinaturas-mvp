@@ -4,7 +4,7 @@ from telegram.ext import (
 )
 
 from config import TELEGRAM_BOT_TOKEN, PRICE_MONTHLY_CENTS, PRICE_YEARLY_CENTS
-from database import insert_pending, update_mp_payment_id
+from database import insert_pending, update_efi_txid
 from messages import MESSAGES
 from payments import create_pix_payment
 
@@ -44,8 +44,8 @@ async def on_plan_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     row_id = insert_pending(user.id, user.username, plan, amount_cents)
 
-    pix_code, mp_payment_id = create_pix_payment(user.id, amount_cents, plan)
-    update_mp_payment_id(row_id, mp_payment_id)
+    pix_code, efi_txid = create_pix_payment(user.id, amount_cents, plan)
+    update_efi_txid(row_id, efi_txid)
 
     await query.message.reply_text(MESSAGES["aguardando_pagamento"])
     await query.message.reply_text(

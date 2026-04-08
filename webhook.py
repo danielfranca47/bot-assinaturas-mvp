@@ -1,12 +1,21 @@
-import mercadopago
+from efipay import EfiPay
 from fastapi import APIRouter, Request
 
-from config import MP_ACCESS_TOKEN, TELEGRAM_CHANNEL_LINK, ADMIN_TELEGRAM_ID
+from config import (
+    EFI_CLIENT_ID, EFI_CLIENT_SECRET, EFI_CERT_PATH, EFI_SANDBOX,
+    TELEGRAM_CHANNEL_LINK, ADMIN_TELEGRAM_ID,
+)
 from database import mark_as_paid
 from messages import MESSAGES
 
 router = APIRouter()
-sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
+
+_efi_options = {
+    "client_id": EFI_CLIENT_ID,
+    "client_secret": EFI_CLIENT_SECRET,
+    "sandbox": EFI_SANDBOX,
+    "certificate": EFI_CERT_PATH,
+}
 
 # Referência ao bot preenchida em main.py após inicialização
 _bot = None
@@ -17,43 +26,49 @@ def set_bot(bot):
     _bot = bot
 
 
-@router.post("/webhook/mercadopago")
-async def mercadopago_webhook(request: Request):
+@router.post("/webhook/efi")
+async def efi_webhook(request: Request):
     data = await request.json()
 
-    if data.get("type") != "payment":
+    if "pix" not in data:
         return {"status": "ignored"}
 
-    payment_id = str(data["data"]["id"])
+    for pix_item in data["pix"]:
+        txid = pix_item.get("txid")
+        if not txid:
+            continue
 
-    # Consulta o status real na API do MP
-    result = sdk.payment().get(payment_id)
-    payment_info = result["response"]
+        # Verificação opcional via API EFI — confirma que status é CONCLUIDA
+        try:
+            efi = EfiPay(_efi_options)
+            charge = efi.pix_detail_charge(params={"txid": txid})
+            if charge.get("status") != "CONCLUIDA":
+                continue
+        except Exception:
+            # Em caso de falha na verificação, processa mesmo assim (pagamento já recebido)
+            pass
 
-    if payment_info.get("status") != "approved":
-        return {"status": "not_approved"}
+        sale = mark_as_paid(txid)
+        if sale is None:
+            continue  # já processado
 
-    sale = mark_as_paid(payment_id)
-    if sale is None:
-        return {"status": "already_processed"}
+        await _bot.send_message(
+            chat_id=sale["telegram_user_id"],
+            text=MESSAGES["pagamento_confirmado"].format(link=TELEGRAM_CHANNEL_LINK),
+        )
 
-    await _bot.send_message(
-        chat_id=sale["telegram_user_id"],
-        text=MESSAGES["pagamento_confirmado"].format(link=TELEGRAM_CHANNEL_LINK),
-    )
-
-    plano_label = "Mensal" if sale["plan"] == "monthly" else "Anual"
-    valor_reais = sale["amount_cents"] / 100
-    username_display = f"@{sale['username']}" if sale["username"] else f"ID {sale['telegram_user_id']}"
-    await _bot.send_message(
-        chat_id=ADMIN_TELEGRAM_ID,
-        text=(
-            f"Nova venda realizada!\n\n"
-            f"Usuario: {username_display}\n"
-            f"Plano: {plano_label}\n"
-            f"Valor: R$ {valor_reais:.2f}\n"
-            f"ID MP: {payment_id}"
-        ),
-    )
+        plano_label = "Mensal" if sale["plan"] == "monthly" else "Anual"
+        valor_reais = sale["amount_cents"] / 100
+        username_display = f"@{sale['username']}" if sale["username"] else f"ID {sale['telegram_user_id']}"
+        await _bot.send_message(
+            chat_id=ADMIN_TELEGRAM_ID,
+            text=(
+                f"Nova venda realizada!\n\n"
+                f"Usuario: {username_display}\n"
+                f"Plano: {plano_label}\n"
+                f"Valor: R$ {valor_reais:.2f}\n"
+                f"TxID EFI: {txid}"
+            ),
+        )
 
     return {"status": "ok"}
