@@ -26,7 +26,7 @@ def set_bot(bot):
     _bot = bot
 
 
-@router.post("/webhook/efi")
+@router.post("/webhook/efi/pix")
 async def efi_webhook(request: Request):
     data = await request.json()
 

@@ -3,3 +3,5 @@
 __pycache__/
 *.pyc
 .venv/
+certificado.p12
+certificado.pem

@@ -14,9 +14,10 @@ efi = EfiPay({
 
 webhook_url = f"{WEBHOOK_BASE_URL}/webhook/efi"
 body = {"webhookUrl": webhook_url}
+headers = {"x-skip-mtls-checking": "true"}
 
 print(f"Registrando webhook: {webhook_url}")
-response = efi.pix_config_webhook(params={"chave": EFI_PIX_KEY}, body=body)
+response = efi.pix_config_webhook(params={"chave": EFI_PIX_KEY}, body=body, headers=headers)
 print("Webhook registrado:", response)
 
 # Confirma o registro
